@@ -3,7 +3,7 @@
 import { use } from "react"
 import Link from "next/link"
 import { ArrowLeft, Compass } from "lucide-react"
-import { useRoleBySlug } from "@/lib/progress-store"
+import { useAppStore, useRoleBySlug } from "@/lib/progress-store"
 import { RoleDetailView } from "@/components/role-detail-view"
 import { Button } from "@/components/ui/button"
 
@@ -14,6 +14,17 @@ export default function RoleDetailPage({
 }) {
   const { slug } = use(params)
   const role = useRoleBySlug(slug)
+  const { loading } = useAppStore()
+
+  if (loading && !role) {
+    return (
+      <div className="mx-auto flex max-w-3xl flex-col items-start gap-6 px-4 py-24 md:px-6">
+        <div className="h-7 w-48 animate-pulse rounded bg-muted" />
+        <div className="h-4 w-72 animate-pulse rounded bg-muted" />
+        <div className="h-4 w-64 animate-pulse rounded bg-muted" />
+      </div>
+    )
+  }
 
   if (!role) {
     return (
