@@ -5,7 +5,7 @@ import { useMemo, useState } from "react"
 import { ArrowLeft, ChevronDown, GitBranch, Pencil, Plus } from "lucide-react"
 import type { Role, Skill } from "@/lib/types"
 import { useAppStore } from "@/lib/progress-store"
-import { summarizeCategory, summarizeRole } from "@/lib/progress-utils"
+import { flattenSkills, summarizeCategory, summarizeRole } from "@/lib/progress-utils"
 import { getActiveTrack } from "@/lib/data"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
@@ -29,8 +29,10 @@ export function RoleDetailView({ role }: Props) {
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
 
   const summary = useMemo(() => summarizeRole(role, getStatus), [role, getStatus])
+  // Flatten the entire tree (including sub-skills) so the dialog's related-skills
+  // picker and "X linked" navigation can resolve any skill at any depth.
   const allSkills = useMemo(
-    () => activeTrack.categories.flatMap((c) => c.skills),
+    () => flattenSkills(activeTrack.categories.flatMap((c) => c.skills)),
     [activeTrack],
   )
 

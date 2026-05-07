@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { ExternalLink } from "lucide-react"
 import {
   Dialog,
@@ -10,7 +11,9 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useProgress } from "@/lib/progress-store"
+import { countIncompleteDescendants, getEffectiveStatus } from "@/lib/progress-utils"
 import type { Skill, SkillStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -35,7 +38,8 @@ const importanceVariant = {
 } as const
 
 export function SkillDetailDialog({ skill, trackId, allSkills, onOpenChange, onSelectRelated }: Props) {
-  const { getStatus, setStatus } = useProgress()
+  const { getStatus, setStatus, setSkillTreeStatus } = useProgress()
+  const [pendingTarget, setPendingTarget] = useState<null | { value: SkillStatus; mode: "complete" | "reset" }>(null)
   const open = skill !== null
 
   if (!skill) {
@@ -48,9 +52,34 @@ export function SkillDetailDialog({ skill, trackId, allSkills, onOpenChange, onS
     )
   }
 
-  const status = getStatus(trackId, skill.id, skill.status ?? "not-started")
+  const hasChildren = !!skill.children && skill.children.length > 0
+  const status = getEffectiveStatus(skill, trackId, getStatus)
+  const incompleteCount = hasChildren ? countIncompleteDescendants(skill, trackId, getStatus) : 0
   const related =
     skill.related?.map((id) => allSkills.find((s) => s.id === id)).filter(Boolean) as Skill[]
+
+  const handleStatusClick = (target: SkillStatus) => {
+    if (target === status) return
+
+    if (!hasChildren) {
+      setStatus(trackId, skill.id, target)
+      return
+    }
+
+    // Cascade-with-confirm: marking a parent completed without all children done.
+    if (target === "completed" && incompleteCount > 0) {
+      setPendingTarget({ value: "completed", mode: "complete" })
+      return
+    }
+
+    // Cascade-with-confirm: resetting a parent that's currently completed.
+    if (status === "completed" && target === "not-started") {
+      setPendingTarget({ value: "not-started", mode: "reset" })
+      return
+    }
+
+    setStatus(trackId, skill.id, target)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -97,13 +126,51 @@ export function SkillDetailDialog({ skill, trackId, allSkills, onOpenChange, onS
                 key={opt.value}
                 size="sm"
                 variant={status === opt.value ? "default" : "outline"}
-                onClick={() => setStatus(trackId, skill.id, opt.value)}
+                onClick={() => handleStatusClick(opt.value)}
               >
                 {opt.label}
               </Button>
             ))}
           </div>
         </section>
+
+        {skill.children && skill.children.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h4 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+              Sub-skills
+            </h4>
+            <ul className="flex flex-col gap-1">
+              {skill.children.map((child) => {
+                const childStatus = getEffectiveStatus(child, trackId, getStatus)
+                return (
+                  <li key={child.id}>
+                    <button
+                      onClick={() => onSelectRelated(child)}
+                      className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-left transition-colors hover:border-primary/50 hover:bg-accent"
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={cn(
+                            "size-1.5 shrink-0 rounded-full",
+                            childStatus === "completed"
+                              ? "bg-success"
+                              : childStatus === "learning"
+                                ? "bg-primary"
+                                : "bg-muted-foreground/40",
+                          )}
+                        />
+                        <span className="truncate text-sm font-medium">{child.name}</span>
+                      </span>
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {child.importance}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )}
 
         {related && related.length > 0 && (
           <section className="flex flex-col gap-2">
@@ -147,6 +214,29 @@ export function SkillDetailDialog({ skill, trackId, allSkills, onOpenChange, onS
           </section>
         )}
       </DialogContent>
+
+      <ConfirmDialog
+        open={pendingTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingTarget(null)
+        }}
+        variant="default"
+        title={
+          pendingTarget?.mode === "reset"
+            ? `Reset progress for ${skill.name}?`
+            : `Mark ${skill.name} as completed?`
+        }
+        description={
+          pendingTarget?.mode === "reset"
+            ? `This will clear progress for ${skill.name} and all of its sub-skills.`
+            : `${incompleteCount} sub-skill${incompleteCount === 1 ? "" : "s"} not yet completed. Marking this skill as completed will also mark every sub-skill as completed.`
+        }
+        confirmLabel={pendingTarget?.mode === "reset" ? "Reset all" : "Mark all completed"}
+        onConfirm={() => {
+          if (pendingTarget) setSkillTreeStatus(trackId, skill, pendingTarget.value)
+          setPendingTarget(null)
+        }}
+      />
     </Dialog>
   )
 }
