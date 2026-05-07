@@ -29,22 +29,35 @@ export default function SignUpPage() {
       return
     }
     setLoading(true)
-    const supabase = createClient()
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo:
-          process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ??
-          `${window.location.origin}/auth/callback`,
-      },
+
+    // Create a pre-confirmed user via the server (uses the service role
+    // key) so we can skip email confirmation for testing.
+    const res = await fetch("/api/auth/sign-up", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password }),
     })
-    if (error) {
-      setError(error.message)
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      setError(data.error ?? "Failed to create account.")
       setLoading(false)
       return
     }
-    router.push("/auth/sign-up-success")
+
+    // Immediately sign in to establish a browser session.
+    const supabase = createClient()
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+    if (signInError) {
+      setError(signInError.message)
+      setLoading(false)
+      return
+    }
+
+    router.push("/roles")
+    router.refresh()
   }
 
   return (
