@@ -4,7 +4,12 @@ import { useState } from "react"
 import { Check, ChevronDown, ChevronRight, Circle, Loader } from "lucide-react"
 import type { Skill, SkillStatus } from "@/lib/types"
 import { useProgress } from "@/lib/progress-store"
-import { summarizeChildren } from "@/lib/progress-utils"
+import {
+  countIncompleteDescendants,
+  getEffectiveStatus,
+  summarizeChildren,
+} from "@/lib/progress-utils"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { cn } from "@/lib/utils"
 
 interface Props {
@@ -45,12 +50,50 @@ const checkBoxStyles: Record<SkillStatus, string> = {
   completed: "border-success bg-success text-success-foreground",
 }
 
+const STATUS_ORDER: SkillStatus[] = ["not-started", "learning", "completed"]
+
+function nextStatus(s: SkillStatus): SkillStatus {
+  return STATUS_ORDER[(STATUS_ORDER.indexOf(s) + 1) % STATUS_ORDER.length]
+}
+
 export function SkillNode({ skill, trackId, onSelect, depth = 0 }: Props) {
-  const { getStatus, cycleStatus } = useProgress()
-  const status = getStatus(trackId, skill.id, skill.status ?? "not-started")
+  const { getStatus, setStatus, setSkillTreeStatus } = useProgress()
   const hasChildren = !!skill.children && skill.children.length > 0
+
+  // Effective status — what the user sees. Reflects "all children completed"
+  // even if the parent's raw status hasn't been touched yet.
+  const status = getEffectiveStatus(skill, trackId, getStatus)
   const [expanded, setExpanded] = useState(true)
   const childSummary = hasChildren ? summarizeChildren(skill, trackId, getStatus) : null
+
+  const [confirmAction, setConfirmAction] = useState<null | "complete" | "reset">(null)
+  const incompleteCount = hasChildren ? countIncompleteDescendants(skill, trackId, getStatus) : 0
+
+  const handleCycle = () => {
+    const target = nextStatus(status)
+
+    if (!hasChildren) {
+      setStatus(trackId, skill.id, target)
+      return
+    }
+
+    // Going TO completed but children aren't all done → confirm + cascade.
+    if (target === "completed" && incompleteCount > 0) {
+      setConfirmAction("complete")
+      return
+    }
+
+    // Currently displayed as completed (because children ARE all done) and
+    // user wants to step back to not-started → confirm + cascade reset.
+    if (status === "completed" && target === "not-started") {
+      setConfirmAction("reset")
+      return
+    }
+
+    // Transitioning between not-started/learning on a parent — touch only the
+    // parent's own raw status. Children stay where they are.
+    setStatus(trackId, skill.id, target)
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -85,7 +128,7 @@ export function SkillNode({ skill, trackId, onSelect, depth = 0 }: Props) {
           type="button"
           onClick={(e) => {
             e.stopPropagation()
-            cycleStatus(trackId, skill.id)
+            handleCycle()
           }}
           aria-label={`Cycle status for ${skill.name}. Currently ${status}.`}
           className={cn(
@@ -138,7 +181,6 @@ export function SkillNode({ skill, trackId, onSelect, depth = 0 }: Props) {
         <div
           className={cn(
             "flex flex-col gap-1.5 border-l border-border/60 pl-3",
-            // indent a touch more on each level
             depth === 0 ? "ml-3" : "ml-2",
           )}
         >
@@ -153,6 +195,33 @@ export function SkillNode({ skill, trackId, onSelect, depth = 0 }: Props) {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmAction !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmAction(null)
+        }}
+        variant="default"
+        title={
+          confirmAction === "reset"
+            ? `Reset progress for ${skill.name}?`
+            : `Mark ${skill.name} as completed?`
+        }
+        description={
+          confirmAction === "reset"
+            ? `This will clear progress for ${skill.name} and all of its sub-skills.`
+            : `${incompleteCount} sub-skill${incompleteCount === 1 ? "" : "s"} not yet completed. Marking this skill as completed will also mark every sub-skill as completed.`
+        }
+        confirmLabel={confirmAction === "reset" ? "Reset all" : "Mark all completed"}
+        onConfirm={() => {
+          if (confirmAction === "reset") {
+            setSkillTreeStatus(trackId, skill, "not-started")
+          } else if (confirmAction === "complete") {
+            setSkillTreeStatus(trackId, skill, "completed")
+          }
+          setConfirmAction(null)
+        }}
+      />
     </div>
   )
 }

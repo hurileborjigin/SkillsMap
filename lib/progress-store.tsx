@@ -186,6 +186,12 @@ interface AppStoreValue {
   getStatus: (trackId: string, skillId: string, fallback?: SkillStatus) => SkillStatus
   setStatus: (trackId: string, skillId: string, status: SkillStatus) => void
   cycleStatus: (trackId: string, skillId: string) => void
+  /**
+   * Set the status of a skill AND every one of its descendants in one shot.
+   * Used when the user explicitly marks a parent skill as completed (cascade
+   * down to all sub-skills) or resets a parent that was auto-completed.
+   */
+  setSkillTreeStatus: (trackId: string, skill: Skill, status: SkillStatus) => void
 
   // role mutations
   createRole: (input: RoleInput) => Role
@@ -262,6 +268,19 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       return { ...prev, [k]: next }
     })
   }, [])
+
+  const setSkillTreeStatus = useCallback<AppStoreValue["setSkillTreeStatus"]>(
+    (trackId, skill, status) => {
+      setProgress((prev) => {
+        const next = { ...prev }
+        forEachSkill([skill], (s) => {
+          next[progressKey(trackId, s.id)] = status
+        })
+        return next
+      })
+    },
+    [],
+  )
 
   // ----- roles -----
   const createRole = useCallback<AppStoreValue["createRole"]>((input) => {
@@ -543,6 +562,7 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       getStatus,
       setStatus,
       cycleStatus,
+      setSkillTreeStatus,
       createRole,
       updateRole,
       deleteRole,
@@ -565,6 +585,7 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       getStatus,
       setStatus,
       cycleStatus,
+      setSkillTreeStatus,
       createRole,
       updateRole,
       deleteRole,
@@ -595,8 +616,8 @@ export function useAppStore() {
 
 // Backwards-compatible alias for components that only need progress helpers.
 export function useProgress() {
-  const { getStatus, setStatus, cycleStatus } = useAppStore()
-  return { getStatus, setStatus, cycleStatus }
+  const { getStatus, setStatus, cycleStatus, setSkillTreeStatus } = useAppStore()
+  return { getStatus, setStatus, cycleStatus, setSkillTreeStatus }
 }
 
 export function useRoleBySlug(slug: string): Role | undefined {

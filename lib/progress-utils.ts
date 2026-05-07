@@ -26,8 +26,43 @@ const EMPTY: ProgressBreakdown = {
 }
 
 /**
+ * Compute the effective status of a skill, taking its sub-skills into account:
+ *
+ *   - leaf skill          → its raw stored status
+ *   - all descendants done → "completed" (auto-checked, even if raw is something else)
+ *   - any descendant has progress → at least "learning"
+ *   - parent raw is "completed" but children aren't all done → demote to "learning"
+ *
+ * Used everywhere we display or count a skill so the parent "checkbox" always
+ * stays in sync with its children.
+ */
+export function getEffectiveStatus(
+  skill: Skill,
+  trackId: string,
+  getStatus: GetStatusFn,
+): SkillStatus {
+  const raw = getStatus(trackId, skill.id)
+  const children = skill.children ?? []
+  if (children.length === 0) return raw
+
+  let allCompleted = true
+  let anyProgress = false
+  for (const child of children) {
+    const childEff = getEffectiveStatus(child, trackId, getStatus)
+    if (childEff !== "completed") allCompleted = false
+    if (childEff !== "not-started") anyProgress = true
+  }
+
+  if (allCompleted) return "completed"
+  if (raw === "completed") return "learning"
+  if (raw === "not-started" && anyProgress) return "learning"
+  return raw
+}
+
+/**
  * Walk a skill tree and tally progress. Every node — parent skills and their
- * descendants — counts as one trackable item.
+ * descendants — counts as one trackable item. Uses the *effective* status so a
+ * parent that is auto-completed via its children counts as completed.
  */
 function tallySkillTree(
   skills: Skill[],
@@ -36,7 +71,7 @@ function tallySkillTree(
   acc: ProgressBreakdown,
 ) {
   for (const skill of skills) {
-    const s = getStatus(trackId, skill.id)
+    const s = getEffectiveStatus(skill, trackId, getStatus)
     if (s === "completed") acc.completed++
     else if (s === "learning") acc.learning++
     else acc.notStarted++
@@ -99,9 +134,30 @@ export function summarizeChildren(
   const children = parent.children ?? []
   let completed = 0
   for (const c of children) {
-    if (getStatus(trackId, c.id) === "completed") completed++
+    if (getEffectiveStatus(c, trackId, getStatus) === "completed") completed++
   }
   return { completed, total: children.length }
+}
+
+/**
+ * Count every descendant (any depth) whose effective status is NOT completed.
+ * Used by the confirm dialog when the user marks a parent as completed without
+ * having ticked off all sub-skills first.
+ */
+export function countIncompleteDescendants(
+  skill: Skill,
+  trackId: string,
+  getStatus: GetStatusFn,
+): number {
+  let n = 0
+  const walk = (list: Skill[]) => {
+    for (const s of list) {
+      if (getEffectiveStatus(s, trackId, getStatus) !== "completed") n++
+      if (s.children?.length) walk(s.children)
+    }
+  }
+  walk(skill.children ?? [])
+  return n
 }
 
 /** Flatten a skill tree into a list — used by the "related skills" picker. */
