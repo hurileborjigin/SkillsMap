@@ -28,6 +28,12 @@ export interface Skill {
   status?: SkillStatus
   related?: string[]
   resources?: { label: string; url: string }[]
+  /**
+   * Optional sub-skills. A skill tree can be arbitrarily deep — e.g. "Python"
+   * can hold "Async I/O", "Typing", "Packaging" etc. Each sub-skill is a fully
+   * independent Skill (own id, own status, own related links).
+   */
+  children?: Skill[]
 }
 
 export interface Category {

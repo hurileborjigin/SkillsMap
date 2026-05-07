@@ -21,15 +21,113 @@ function progressKey(trackId: string, skillId: string) {
   return `${trackId}:${skillId}`
 }
 
-/** Seed the progress map from any seed `status` fields the data ships with. */
+// ---------- recursive skill helpers ----------
+
+/** Walk a skill tree, applying `fn` to every node (parents and descendants). */
+function forEachSkill(skills: Skill[], fn: (s: Skill) => void) {
+  for (const s of skills) {
+    fn(s)
+    if (s.children?.length) forEachSkill(s.children, fn)
+  }
+}
+
+/** Collect every skill id in the subtree rooted at any of the given skills. */
+function collectSkillIds(skills: Skill[]): string[] {
+  const ids: string[] = []
+  forEachSkill(skills, (s) => ids.push(s.id))
+  return ids
+}
+
+/** Apply `fn` to the matching skill anywhere in the tree, returning a new array. */
+function mapSkillInTree(
+  skills: Skill[],
+  skillId: string,
+  fn: (s: Skill) => Skill,
+): Skill[] {
+  return skills.map((s) => {
+    if (s.id === skillId) return fn(s)
+    if (s.children?.length) {
+      const nextChildren = mapSkillInTree(s.children, skillId, fn)
+      if (nextChildren !== s.children) return { ...s, children: nextChildren }
+    }
+    return s
+  })
+}
+
+/** Insert `child` under the parent matching `parentSkillId`, anywhere in the tree. */
+function appendChildInTree(skills: Skill[], parentSkillId: string, child: Skill): Skill[] {
+  return skills.map((s) => {
+    if (s.id === parentSkillId) {
+      return { ...s, children: [...(s.children ?? []), child] }
+    }
+    if (s.children?.length) {
+      const next = appendChildInTree(s.children, parentSkillId, child)
+      if (next !== s.children) return { ...s, children: next }
+    }
+    return s
+  })
+}
+
+/** Remove the skill matching `skillId` from anywhere in the tree. */
+function removeSkillInTree(skills: Skill[], skillId: string): Skill[] {
+  const filtered = skills.filter((s) => s.id !== skillId)
+  return filtered.map((s) => {
+    if (!s.children?.length) return s
+    const nextChildren = removeSkillInTree(s.children, skillId)
+    if (nextChildren === s.children) return s
+    return { ...s, children: nextChildren }
+  })
+}
+
+/** Move the skill among its siblings (works at any depth in the tree). */
+function moveSkillInTree(skills: Skill[], skillId: string, dir: -1 | 1): Skill[] {
+  const idx = skills.findIndex((s) => s.id === skillId)
+  if (idx >= 0) {
+    return moveItem(skills, skillId, dir)
+  }
+  return skills.map((s) => {
+    if (!s.children?.length) return s
+    const nextChildren = moveSkillInTree(s.children, skillId, dir)
+    if (nextChildren === s.children) return s
+    return { ...s, children: nextChildren }
+  })
+}
+
+/** True iff the skill at `skillId` is the first/last among its siblings. */
+function getSkillSiblingPosition(
+  skills: Skill[],
+  skillId: string,
+): { isFirst: boolean; isLast: boolean } | null {
+  const idx = skills.findIndex((s) => s.id === skillId)
+  if (idx >= 0) {
+    return { isFirst: idx === 0, isLast: idx === skills.length - 1 }
+  }
+  for (const s of skills) {
+    if (!s.children?.length) continue
+    const r = getSkillSiblingPosition(s.children, skillId)
+    if (r) return r
+  }
+  return null
+}
+
+/** Deep clone a skill subtree, re-minting every id. Used by `duplicateTrack`. */
+function cloneSkillTree(skills: Skill[]): Skill[] {
+  return skills.map((s) => ({
+    ...s,
+    id: genId("skill"),
+    children: s.children?.length ? cloneSkillTree(s.children) : undefined,
+  }))
+}
+
+/** Seed the progress map from any seed `status` fields anywhere in the tree. */
 function buildInitialProgress(roles: Role[]): ProgressMap {
   const map: ProgressMap = {}
   for (const role of roles) {
     for (const track of role.tracks) {
       for (const cat of track.categories) {
-        for (const skill of cat.skills) {
-          if (skill.status) map[progressKey(track.id, skill.id)] = skill.status
-        }
+        forEachSkill(cat.skills, (s) => {
+          if (s.status) map[progressKey(track.id, s.id)] = s.status
+        })
       }
     }
   }
@@ -51,10 +149,6 @@ function mapCategory(track: Track, categoryId: string, fn: (c: Category) => Cate
     ...track,
     categories: track.categories.map((c) => (c.id === categoryId ? fn(c) : c)),
   }
-}
-
-function mapSkill(category: Category, skillId: string, fn: (s: Skill) => Skill): Category {
-  return { ...category, skills: category.skills.map((s) => (s.id === skillId ? fn(s) : s)) }
 }
 
 function moveItem<T extends { id: string }>(items: T[], id: string, dir: -1 | 1): T[] {
@@ -116,19 +210,22 @@ interface AppStoreValue {
   moveCategory: (slug: string, trackId: string, categoryId: string, dir: -1 | 1) => void
   deleteCategory: (slug: string, trackId: string, categoryId: string) => void
 
-  // skill mutations
+  // skill mutations — every method works at any depth in the tree.
+  // Pass `parentSkillId` to add/insert a sub-skill under an existing skill;
+  // omit it (or pass null) to add at the top level of the category.
   addSkill: (
     slug: string,
     trackId: string,
     categoryId: string,
     input: SkillInput,
+    parentSkillId?: string | null,
   ) => Skill | undefined
   updateSkill: (
     slug: string,
     trackId: string,
     categoryId: string,
     skillId: string,
-    patch: Partial<Omit<Skill, "id">>,
+    patch: Partial<Omit<Skill, "id" | "children">>,
   ) => void
   moveSkill: (
     slug: string,
@@ -200,12 +297,12 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
     setRoles((prev) => {
       const target = prev.find((r) => r.slug === slug)
       if (!target) return prev
-      // also clean up progress for any skill in any of the role's tracks
+      // also clean up progress for any skill (at any depth) in any of the role's tracks
       setProgress((p) => {
         const next = { ...p }
         for (const t of target.tracks) {
           for (const c of t.categories) {
-            for (const s of c.skills) delete next[progressKey(t.id, s.id)]
+            for (const id of collectSkillIds(c.skills)) delete next[progressKey(t.id, id)]
           }
         }
         return next
@@ -246,11 +343,12 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
         const source = r.tracks.find((t) => t.id === trackId)
         if (!source) return r
         const newTrackId = genId("track")
-        // give every nested category & skill a fresh id so progress can diverge per track
+        // give every nested category & skill (and sub-skill) a fresh id so
+        // progress can diverge per track.
         const categories = source.categories.map<Category>((c) => ({
           ...c,
           id: genId("cat"),
-          skills: c.skills.map<Skill>((s) => ({ ...s, id: genId("skill") })),
+          skills: cloneSkillTree(c.skills),
         }))
         const dup: Track = {
           id: newTrackId,
@@ -279,7 +377,7 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
           setProgress((p) => {
             const next = { ...p }
             for (const c of removed.categories) {
-              for (const s of c.skills) delete next[progressKey(removed.id, s.id)]
+              for (const id of collectSkillIds(c.skills)) delete next[progressKey(removed.id, id)]
             }
             return next
           })
@@ -333,7 +431,7 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
           if (removed) {
             setProgress((p) => {
               const next = { ...p }
-              for (const s of removed.skills) delete next[progressKey(trackId, s.id)]
+              for (const id of collectSkillIds(removed.skills)) delete next[progressKey(trackId, id)]
               return next
             })
           }
@@ -343,9 +441,9 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
-  // ----- skills -----
+  // ----- skills (work at any depth) -----
   const addSkill = useCallback<AppStoreValue["addSkill"]>(
-    (slug, trackId, categoryId, input) => {
+    (slug, trackId, categoryId, input, parentSkillId) => {
       const skill: Skill = {
         id: genId("skill"),
         name: input.name.trim() || "New skill",
@@ -357,7 +455,12 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       setRoles((prev) =>
         mapRole(prev, slug, (r) =>
           mapTrack(r, trackId, (t) =>
-            mapCategory(t, categoryId, (c) => ({ ...c, skills: [...c.skills, skill] })),
+            mapCategory(t, categoryId, (c) => {
+              if (parentSkillId) {
+                return { ...c, skills: appendChildInTree(c.skills, parentSkillId, skill) }
+              }
+              return { ...c, skills: [...c.skills, skill] }
+            }),
           ),
         ),
       )
@@ -371,7 +474,10 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       setRoles((prev) =>
         mapRole(prev, slug, (r) =>
           mapTrack(r, trackId, (t) =>
-            mapCategory(t, categoryId, (c) => mapSkill(c, skillId, (s) => ({ ...s, ...patch }))),
+            mapCategory(t, categoryId, (c) => ({
+              ...c,
+              skills: mapSkillInTree(c.skills, skillId, (s) => ({ ...s, ...patch })),
+            })),
           ),
         ),
       )
@@ -384,7 +490,10 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       setRoles((prev) =>
         mapRole(prev, slug, (r) =>
           mapTrack(r, trackId, (t) =>
-            mapCategory(t, categoryId, (c) => ({ ...c, skills: moveItem(c.skills, skillId, dir) })),
+            mapCategory(t, categoryId, (c) => ({
+              ...c,
+              skills: moveSkillInTree(c.skills, skillId, dir),
+            })),
           ),
         ),
       )
@@ -394,18 +503,36 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
 
   const deleteSkill = useCallback<AppStoreValue["deleteSkill"]>(
     (slug, trackId, categoryId, skillId) => {
+      // Capture the subtree so we can purge progress for the deleted node + its descendants.
+      let removedIds: string[] = []
       setRoles((prev) =>
         mapRole(prev, slug, (r) =>
           mapTrack(r, trackId, (t) =>
-            mapCategory(t, categoryId, (c) => ({ ...c, skills: c.skills.filter((s) => s.id !== skillId) })),
+            mapCategory(t, categoryId, (c) => {
+              const findSkill = (skills: Skill[]): Skill | null => {
+                for (const s of skills) {
+                  if (s.id === skillId) return s
+                  if (s.children?.length) {
+                    const found = findSkill(s.children)
+                    if (found) return found
+                  }
+                }
+                return null
+              }
+              const target = findSkill(c.skills)
+              if (target) removedIds = collectSkillIds([target])
+              return { ...c, skills: removeSkillInTree(c.skills, skillId) }
+            }),
           ),
         ),
       )
-      setProgress((p) => {
-        const next = { ...p }
-        delete next[progressKey(trackId, skillId)]
-        return next
-      })
+      if (removedIds.length > 0) {
+        setProgress((p) => {
+          const next = { ...p }
+          for (const id of removedIds) delete next[progressKey(trackId, id)]
+          return next
+        })
+      }
     },
     [],
   )
@@ -481,3 +608,7 @@ export function useActiveTrack(role: Role | undefined): Track | undefined {
   if (!role) return undefined
   return getActiveTrack(role)
 }
+
+// Exported so components (e.g. CategoryEditor) can compute disabled states for
+// the up/down buttons without re-implementing the recursion.
+export { getSkillSiblingPosition }
