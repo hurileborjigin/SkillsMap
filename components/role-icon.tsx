@@ -1,23 +1,15 @@
-import { Brain, Server, Layout, Cog, Eye } from "lucide-react"
-import type { Role } from "@/lib/types"
+import { getIcon } from "@/lib/icon-options"
+import type { IconKey } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-const map: Record<Role["iconKey"], typeof Brain> = {
-  llm: Brain,
-  backend: Server,
-  frontend: Layout,
-  devops: Cog,
-  cv: Eye,
-}
-
 interface Props {
-  iconKey: Role["iconKey"]
+  iconKey: IconKey | string
   className?: string
   size?: "sm" | "md" | "lg"
 }
 
 export function RoleIcon({ iconKey, className, size = "md" }: Props) {
-  const Icon = map[iconKey]
+  const Icon = getIcon(iconKey)
   const sizeClasses = {
     sm: "size-7",
     md: "size-9",

@@ -3,8 +3,7 @@ import { ArrowRight, Compass, GitBranch, Target } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { HeroGraph } from "@/components/hero-graph"
-import { RoleCard } from "@/components/role-card"
-import { roles } from "@/lib/data"
+import { FeaturedRolesGrid } from "@/components/featured-roles"
 
 export default function HomePage() {
   return (
@@ -100,11 +99,7 @@ function FeaturedRoles() {
           </Button>
         </div>
 
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {roles.map((role) => (
-            <RoleCard key={role.slug} role={role} />
-          ))}
-        </div>
+        <FeaturedRolesGrid />
       </div>
     </section>
   )

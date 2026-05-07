@@ -1,6 +1,16 @@
-import type { Role } from "./types"
+import type { Category, Role, Track } from "./types"
 
-export const roles: Role[] = [
+interface RawRole {
+  slug: string
+  name: string
+  shortDescription: string
+  longDescription: string
+  difficulty: Role["difficulty"]
+  iconKey: Role["iconKey"]
+  categories: Category[]
+}
+
+const _rawRoleData: RawRole[] = [
   {
     slug: "llm-engineer",
     name: "LLM Engineer",
@@ -523,10 +533,35 @@ export const roles: Role[] = [
   },
 ]
 
-export function getRoleBySlug(slug: string) {
-  return roles.find((r) => r.slug === slug)
+/** Wraps each seed role's categories into a single default Track. */
+function toRole(raw: RawRole): Role {
+  const trackId = `track_${raw.slug}_default`
+  const defaultTrack: Track = {
+    id: trackId,
+    name: "Default Track",
+    description: "The standard, opinionated path for this role. Duplicate it to customize.",
+    isDefault: true,
+    categories: raw.categories,
+  }
+  return {
+    slug: raw.slug,
+    name: raw.name,
+    shortDescription: raw.shortDescription,
+    longDescription: raw.longDescription,
+    difficulty: raw.difficulty,
+    iconKey: raw.iconKey,
+    tracks: [defaultTrack],
+    activeTrackId: trackId,
+    isDefault: true,
+  }
 }
 
-export function countRoleSkills(role: { categories: { skills: unknown[] }[] }) {
-  return role.categories.reduce((sum, c) => sum + c.skills.length, 0)
+export const seedRoles: Role[] = _rawRoleData.map(toRole)
+
+export function getActiveTrack(role: Role): Track {
+  return role.tracks.find((t) => t.id === role.activeTrackId) ?? role.tracks[0]
+}
+
+export function countTrackSkills(track: Track) {
+  return track.categories.reduce((sum, c) => sum + c.skills.length, 0)
 }

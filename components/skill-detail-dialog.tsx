@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 
 interface Props {
   skill: Skill | null
+  trackId: string
   allSkills: Skill[]
   onOpenChange: (open: boolean) => void
   onSelectRelated: (skill: Skill) => void
@@ -33,7 +34,7 @@ const importanceVariant = {
   optional: "muted",
 } as const
 
-export function SkillDetailDialog({ skill, allSkills, onOpenChange, onSelectRelated }: Props) {
+export function SkillDetailDialog({ skill, trackId, allSkills, onOpenChange, onSelectRelated }: Props) {
   const { getStatus, setStatus } = useProgress()
   const open = skill !== null
 
@@ -47,7 +48,7 @@ export function SkillDetailDialog({ skill, allSkills, onOpenChange, onSelectRela
     )
   }
 
-  const status = getStatus(skill.id, skill.status)
+  const status = getStatus(trackId, skill.id, skill.status ?? "not-started")
   const related =
     skill.related?.map((id) => allSkills.find((s) => s.id === id)).filter(Boolean) as Skill[]
 
@@ -77,12 +78,14 @@ export function SkillDetailDialog({ skill, allSkills, onOpenChange, onSelectRela
           <DialogDescription>{skill.description}</DialogDescription>
         </DialogHeader>
 
-        <section className="flex flex-col gap-2">
-          <h4 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-            Why it matters
-          </h4>
-          <p className="text-sm text-foreground leading-relaxed">{skill.whyItMatters}</p>
-        </section>
+        {skill.whyItMatters && (
+          <section className="flex flex-col gap-2">
+            <h4 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+              Why it matters
+            </h4>
+            <p className="text-sm text-foreground leading-relaxed">{skill.whyItMatters}</p>
+          </section>
+        )}
 
         <section className="flex flex-col gap-2">
           <h4 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
@@ -94,7 +97,7 @@ export function SkillDetailDialog({ skill, allSkills, onOpenChange, onSelectRela
                 key={opt.value}
                 size="sm"
                 variant={status === opt.value ? "default" : "outline"}
-                onClick={() => setStatus(skill.id, opt.value)}
+                onClick={() => setStatus(trackId, skill.id, opt.value)}
               >
                 {opt.label}
               </Button>

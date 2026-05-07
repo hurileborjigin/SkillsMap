@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 
 interface Props {
   skill: Skill
+  trackId: string
   onSelect: (skill: Skill) => void
 }
 
@@ -40,9 +41,9 @@ const checkBoxStyles: Record<SkillStatus, string> = {
   completed: "border-success bg-success text-success-foreground",
 }
 
-export function SkillNode({ skill, onSelect }: Props) {
+export function SkillNode({ skill, trackId, onSelect }: Props) {
   const { getStatus, cycleStatus } = useProgress()
-  const status = getStatus(skill.id, skill.status)
+  const status = getStatus(trackId, skill.id, skill.status ?? "not-started")
 
   return (
     <div
@@ -55,7 +56,7 @@ export function SkillNode({ skill, onSelect }: Props) {
         type="button"
         onClick={(e) => {
           e.stopPropagation()
-          cycleStatus(skill.id)
+          cycleStatus(trackId, skill.id)
         }}
         aria-label={`Cycle status for ${skill.name}. Currently ${status}.`}
         className={cn(

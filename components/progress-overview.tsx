@@ -2,19 +2,18 @@
 
 import Link from "next/link"
 import { ArrowRight, CheckCircle2, CircleDot, Circle } from "lucide-react"
-import { roles } from "@/lib/data"
-import { useProgress } from "@/lib/progress-store"
+import { useAppStore } from "@/lib/progress-store"
 import { summarizeRole } from "@/lib/progress-utils"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { RoleIcon } from "@/components/role-icon"
 
 export function ProgressOverview() {
-  const { progress } = useProgress()
+  const { roles, getStatus } = useAppStore()
 
   const roleSummaries = roles.map((role) => ({
     role,
-    summary: summarizeRole(role, progress),
+    summary: summarizeRole(role, getStatus),
   }))
 
   // Aggregate across all roles
@@ -50,7 +49,7 @@ export function ProgressOverview() {
           <p className="text-sm text-muted-foreground">
             <span className="font-mono text-foreground">{totals.completed}</span> of{" "}
             <span className="font-mono">{totals.total}</span> skills marked completed across all
-            roles.
+            active tracks.
           </p>
         </div>
 
@@ -94,6 +93,9 @@ export function ProgressOverview() {
                     <Badge variant="primary">
                       Required {summary.requiredCompleted}/{summary.requiredTotal}
                     </Badge>
+                  )}
+                  {role.tracks.length > 1 && (
+                    <Badge variant="muted">{role.tracks.length} tracks</Badge>
                   )}
                 </div>
                 <Progress

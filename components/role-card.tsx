@@ -1,11 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowRight } from "lucide-react"
+import { ArrowRight, GitBranch } from "lucide-react"
 import type { Role } from "@/lib/types"
-import { useProgress } from "@/lib/progress-store"
+import { useAppStore } from "@/lib/progress-store"
 import { summarizeRole } from "@/lib/progress-utils"
-import { countRoleSkills } from "@/lib/data"
+import { countTrackSkills, getActiveTrack } from "@/lib/data"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { RoleIcon } from "@/components/role-icon"
@@ -21,9 +21,10 @@ const difficultyVariant = {
 } as const
 
 export function RoleCard({ role }: Props) {
-  const { progress } = useProgress()
-  const summary = summarizeRole(role, progress)
-  const totalSkills = countRoleSkills(role)
+  const { getStatus } = useAppStore()
+  const summary = summarizeRole(role, getStatus)
+  const activeTrack = getActiveTrack(role)
+  const totalSkills = countTrackSkills(activeTrack)
 
   return (
     <Link
@@ -38,7 +39,7 @@ export function RoleCard({ role }: Props) {
       <div className="flex flex-col gap-2">
         <h3 className="text-lg font-semibold tracking-tight text-foreground">{role.name}</h3>
         <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2">
-          {role.shortDescription}
+          {role.shortDescription || "No description yet."}
         </p>
       </div>
 
@@ -48,6 +49,14 @@ export function RoleCard({ role }: Props) {
           <span>skills</span>
         </Badge>
         <Badge variant={difficultyVariant[role.difficulty]}>{role.difficulty}</Badge>
+        {role.tracks.length > 1 && (
+          <Badge variant="muted">
+            <GitBranch className="size-3" />
+            <span className="font-mono">{role.tracks.length}</span>
+            <span>tracks</span>
+          </Badge>
+        )}
+        {!role.isDefault && <Badge variant="primary">Custom</Badge>}
       </div>
 
       <div className="mt-auto flex flex-col gap-2 pt-2">
